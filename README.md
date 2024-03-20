@@ -22,6 +22,7 @@ To run Shiva locally, follow these steps:
    ```bash
    cd evm_digester
    npm install
+   ```
    
 3 **Set up the PostgreSQL database:**
    - Install PostgreSQL and create a new database.
