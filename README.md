@@ -27,7 +27,7 @@ To run Shiva locally, follow these steps:
 3 **Set up the PostgreSQL database:**
    - Install PostgreSQL and create a new database.
    - Update the database connection details directly in the database.ts file.
-   - 
+     
 4 **Start the server:**
    - npm start (or) npm run start
 
