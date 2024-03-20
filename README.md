@@ -19,6 +19,7 @@ To run Shiva locally, follow these steps:
    git clone git@github.com:sandy2108/evm_digester.git
    
 2 **Install dependencies:**
+   ```bash
    cd evm_digester
    npm install
    
