@@ -1,11 +1,14 @@
 import { Pool } from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const poolConfig = {
-    user: 'postgres',
-    host: 'localhost',
-    database: 'shiva',
-    password: 'test1234',
-    port: 5432, // Change port if necessary
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    port: parseInt(process.env.DB_PORT || '5432'), // Change port if necessary
 };
 
 const pool: Pool = new Pool(poolConfig);
