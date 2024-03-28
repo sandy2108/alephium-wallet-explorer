@@ -51,3 +51,4 @@ Once the server is running, you can access the API endpoints to fetch blockchain
 
   
 
+# alephium-wallet-explorer
