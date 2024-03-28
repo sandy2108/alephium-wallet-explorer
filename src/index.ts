@@ -104,7 +104,7 @@ async function getTransactionsForAddress(address: string, page: number, limit: n
         const data: Transaction[] = await response.json();
         const formatTxnPromises = data.map((txn: Transaction) => formatTransaction(txn, address));
         const formatTxn = await Promise.all(formatTxnPromises);
-        return formatTxn;
+        return formatTxn.flat();
     } catch (error) {
         console.error("Error on Fetching Wallet Transactions:", error);
         throw error;
@@ -112,7 +112,7 @@ async function getTransactionsForAddress(address: string, page: number, limit: n
 }
 
 
-async function formatTransaction(data: Transaction, address: string): Promise<WalletExplorerTransaction> {
+async function nativeTransfers(data: Transaction, address: string): Promise<WalletExplorerTransaction> {
    const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
    const isOut = data.inputs?.some(input => input.address === address);
    const contract = data.inputs?.flatMap(input => input.tokens?.map(token => token.id)).filter(Boolean).join(', ') || "";
@@ -131,8 +131,8 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
     }else{
         amountReceived = receiver?.attoAlphAmount || 0;
     }
-
-   const formattedTransaction: WalletExplorerTransaction = {
+    
+    const formattedTransaction: WalletExplorerTransaction = {
       hash: data.hash,
       block_number: await getBlockNumber(data.blockHash), // Populate as needed
       wallet: address, // Populate as needed
@@ -146,7 +146,7 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
       method_id: "",
       is_out: isOut,
       is_transfer: false,
-      fee: data.gasAmount,
+      fee: 0,
       is_added: false,
       is_removed: false,
    };
@@ -155,9 +155,64 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
 }
 
 
+
+async function formatTransaction(data: Transaction, address: string): Promise<WalletExplorerTransaction[]> {
+    
+    if (data.outputs?.some(output => output.type === "ContractOutput")) {
+        return [await nativeTransfers(data, address)];
+    }
+    const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
+    const isOut = data.inputs?.some(input => input.address === address);
+
+    const transactions: WalletExplorerTransaction[] = [];
+
+    if (data.inputs && data.outputs) {
+        const contractIds = new Set<string>();
+        for (const input of data.inputs) {
+            const inputContractIds = input.tokens?.map(token => token.id);
+            if (inputContractIds) {
+                inputContractIds.forEach(id => contractIds.add(id as string)); // Add each contract id to the Set
+            }
+        }
+
+        for (const contractId of contractIds) {
+            const input = data.inputs.find(input => input.tokens?.some(token => token.id === contractId));
+            const output = data.outputs.find(output => output.hint !== input?.outputRef?.hint && output.tokens?.some(token => token.id === contractId));
+
+            if (input && output) {
+                const amountReceived = output.tokens?.find(token => token.id === contractId)?.amount || output.attoAlphAmount || '0';
+
+                const formattedTransaction: WalletExplorerTransaction = {
+                    hash: data.hash,
+                    block_number: await getBlockNumber(data.blockHash), // Populate as needed
+                    wallet: address, // Populate as needed
+                    contract: contractId,
+                    timestamp: data.timestamp,
+                    from: input.address || '',
+                    to: output.address || '',
+                    tx_cost: tx_cost.toString(),
+                    amount: String(amountReceived),
+                    value_usd: 0,
+                    method_id: "",
+                    is_out: isOut || false,
+                    is_transfer: false,
+                    fee: 0,
+                    is_added: false,
+                    is_removed: false,
+                };
+
+                transactions.push(formattedTransaction);
+            }
+        }
+    }
+
+    return transactions;
+}
+
+
 async function main() {
     try {
-        const result = await getTransactionsForAddress("1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4", 1, 6);
+        const result = await getTransactionsForAddress("1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4", 1, 7);
         console.log(JSON.stringify(result, null, 2));
     } catch (error) {
         console.error('Error starting server:', error);
@@ -170,25 +225,4 @@ main().catch(error => {
     process.exit(1);
 });
 
-
-
-
-// function analyzeTransaction(transaction: Transaction) {
-//     // Check if the transaction involves token transfer
-//     if (transaction.inputs.length > 0 && transaction.outputs.length > 0) {
-//         const inputFromYourAddress = transaction.inputs.find(input => input.address === '1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4');
-//         const outputToYourAddress = transaction.outputs.find(output => output.address === '1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4');
-        
-//         if (inputFromYourAddress && outputToYourAddress) {
-//             // Transaction pattern: Your address -> Contract/Swap -> Your address
-//             console.log('Transaction pattern: Your address -> Contract/Swap -> Your address');
-//             const tokensSentToContract = inputFromYourAddress.tokens?.find(token => token.id !== '1a281053ba8601a658368594da034c2e99a0fb951b86498d05e76aedfe666800');
-//             const tokensReceivedBack = outputToYourAddress.tokens?.find(token => token.id === '1a281053ba8601a658368594da034c2e99a0fb951b86498d05e76aedfe666800');
-//             if (tokensSentToContract && tokensReceivedBack) {
-//                 console.log(`Amount sent to contract: ${tokensSentToContract.amount}`);
-//                 console.log(`Amount received back: ${tokensReceivedBack.amount}`);
-//             }
-//         }
-//     }
-// }
 
