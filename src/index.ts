@@ -158,7 +158,7 @@ async function nativeTransfers(data: Transaction, address: string): Promise<Wall
 
 async function formatTransaction(data: Transaction, address: string): Promise<WalletExplorerTransaction[]> {
     
-    if (data.outputs?.some(output => output.type === "ContractOutput")) {
+    if (data.outputs?.some(output => output.type === "ContractOutput" || !output.tokens)) {
         return [await nativeTransfers(data, address)];
     }
     const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
