@@ -210,6 +210,9 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
 
 
 async function dappTransactionsFormat(data: Transaction, address: string): Promise<WalletExplorerTransaction[]> {
+
+    let isTokens: boolean = false;
+
     const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
     const isOut = data.inputs?.some(input => input.address === address);
     const transactions: WalletExplorerTransaction[] = [];
@@ -220,10 +223,26 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
         return total + parseInt(input.attoAlphAmount ?? '0');
     }, 0);
 
-    const amount = (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+    
     const blockNumber = await getBlockNumber(data.blockHash);
 
-    const contract = "";
+    let senderTokens = 0;
+    let senderContract = "";
+
+    data.inputs?.forEach(input => {
+        if (input.unlockScript) {
+            if(input.tokens){
+                isTokens = true;
+                senderContract = input.tokens ? input.tokens.map(token => token.id).join(", ") : "";
+                senderTokens += input.tokens ? input.tokens.map(token => parseInt(token.amount ?? "0")).reduce((acc, val) => acc + val, 0) : 0;
+            }
+        }
+    });
+
+    const amount = isTokens ? senderTokens :  (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+
+
+    
 
     
 
@@ -237,7 +256,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
                 hash: data.hash,
                 block_number: blockNumber, // Populate as needed
                 wallet: address, // Populate as needed
-                contract: Array.isArray(contract) ? contract.join() : contract,
+                contract: senderContract,
                 timestamp: data.timestamp,
                 from: address,
                 to: to,
