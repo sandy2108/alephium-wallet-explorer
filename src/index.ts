@@ -1,3 +1,5 @@
+import { send } from "process";
+
 type Transaction = {
     hash: string;
     blockHash: string;
@@ -123,7 +125,7 @@ async function nativeTransfers(data: Transaction, address: string): Promise<Wall
  
    const inputHint = data.inputs?.[0]?.outputRef?.hint;
    const receiver = data.outputs?.find(output => output.hint !== inputHint);
-   const to = receiver?.address || '';
+   const to = receiver?.address || address;
     let amountReceived;
     if(receiver?.tokens) {
       const amount = receiver.tokens.find(token => token.id === data.inputs?.[0]?.tokens?.[0]?.id);
@@ -131,6 +133,8 @@ async function nativeTransfers(data: Transaction, address: string): Promise<Wall
     }else{
         amountReceived = receiver?.attoAlphAmount || 0;
     }
+
+    
     
     const formattedTransaction: WalletExplorerTransaction = {
       hash: data.hash,
@@ -161,12 +165,9 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
         return await dappTransactionsFormat(data, address);
     }
 
-    if (data.inputs?.some(input => !input.tokens)) {
-        // Call nativeTransfers function and return its result
-        return [await nativeTransfers(data, address)];
-    }
+    
 
-
+    
     const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
     const isOut = data.inputs?.some(input => input.address === address);
 
@@ -211,7 +212,13 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
             }
         }
     }
+
     return transactions;
+ 
+    
+
+
+    
 }
 
 
@@ -224,10 +231,12 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
     const transactions: WalletExplorerTransaction[] = [];
     const inputHint = data.inputs?.[0]?.outputRef?.hint;
     const outputamount = data.outputs?.[0].tokens ? data.outputs?.[0].tokens.map(amount=>amount.amount) :data.outputs?.[0].attoAlphAmount;
+    const outputamounts = data.outputs?.[0].tokens ? data.outputs?.[0].tokens.map(amount=>amount.amount) : 0;
     const filteredInputs = data.inputs?.filter(input => input.address === address);
     const totalAlphAmount = filteredInputs?.reduce((total, input) => {
         return total + parseInt(input.attoAlphAmount ?? '0');
     }, 0);
+    
 
     
     const blockNumber = await getBlockNumber(data.blockHash);
@@ -245,7 +254,11 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
         }
     });
 
-    const amount = isTokens ? senderTokens :  (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+    const amount = isTokens ? senderTokens - (Number(outputamounts)) : (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+
+    // const amount = isTokens ? senderTokens :  (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+
+  
 
     for (const input of data.inputs || []) {
         if (input?.outputRef?.hint !== inputHint && input.address !== address) {
@@ -332,7 +345,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
 
 async function main() {
     try {
-        const result = await getTransactionsForAddress("1Hd3g9D9uJ2EbQYXDG6igZz1ZsfBnxCgVz6JZKbiBXsWF", 1, 9);
+        const result = await getTransactionsForAddress("1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4", 1, 7);
         console.log(JSON.stringify(result, null, 2));
     } catch (error) {
         console.error('Error starting server:', error);
