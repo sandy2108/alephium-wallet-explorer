@@ -155,12 +155,12 @@ async function nativeTransfers(data: Transaction, address: string): Promise<Wall
 }
 
 
-
 async function formatTransaction(data: Transaction, address: string): Promise<WalletExplorerTransaction[]> {
-    
-    if (data.outputs?.some(output => output.type === "ContractOutput" || !output.tokens)) {
-        return [await nativeTransfers(data, address)];
+
+    if (data.outputs?.some(output => output.type === "ContractOutput")) {
+        return await dappTransactionsFormat(data, address);
     }
+
     const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
     const isOut = data.inputs?.some(input => input.address === address);
 
@@ -205,7 +205,98 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
             }
         }
     }
+    return transactions;
+}
 
+
+async function dappTransactionsFormat(data: Transaction, address: string): Promise<WalletExplorerTransaction[]> {
+    const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
+    const isOut = data.inputs?.some(input => input.address === address);
+    const transactions: WalletExplorerTransaction[] = [];
+    const inputHint = data.inputs?.[0]?.outputRef?.hint;
+    const outputamount = data.outputs?.[0].tokens ? data.outputs?.[0].tokens.map(amount=>amount.amount) :data.outputs?.[0].attoAlphAmount;
+    const filteredInputs = data.inputs?.filter(input => input.address === address);
+    const totalAlphAmount = filteredInputs?.reduce((total, input) => {
+        return total + parseInt(input.attoAlphAmount ?? '0');
+    }, 0);
+
+    const amount = (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
+    const blockNumber = await getBlockNumber(data.blockHash);
+
+    const contract = "";
+
+    
+
+   
+    for (const input of data.inputs || []) {
+        if (input?.outputRef?.hint !== inputHint && input.address !== address) {
+            
+            const to = input?.address || '';
+
+            const formattedTransaction: WalletExplorerTransaction = {
+                hash: data.hash,
+                block_number: blockNumber, // Populate as needed
+                wallet: address, // Populate as needed
+                contract: Array.isArray(contract) ? contract.join() : contract,
+                timestamp: data.timestamp,
+                from: address,
+                to: to,
+                tx_cost: tx_cost.toString(),
+                amount: String(amount),
+                value_usd: 0,
+                method_id: "",
+                is_out: isOut || false,
+                is_transfer: false,
+                fee: 0,
+                is_added: false,
+                is_removed: false,
+            };
+
+            transactions.push(formattedTransaction);
+        }
+    }
+
+
+    let receiverAmounts = 0; // Initialize the amount variable outside the forEach loop
+    let receiverContract:string = "";
+    let receiverTokens = 0;
+
+    data.outputs?.forEach(output => {
+        if (output.hint === inputHint) {
+            receiverAmounts += parseInt(output.attoAlphAmount); // Increment the amount by the value of output.attoAlphAmount
+            if(output.tokens){
+                receiverContract = output.tokens ? output.tokens.map(token => token.id).join() : "";
+            }
+            
+            receiverTokens += output.tokens ? output.tokens.map(token => parseInt(token.amount)).reduce((acc, val) => acc + val, 0) : 0;
+        }
+    });
+
+    for (const output of data.outputs || []) {
+        const from = output.type === "ContractOutput" ? output.address : "";
+        if (output.hint !== inputHint) {
+            
+            const formattedTransaction: WalletExplorerTransaction = {
+                hash: data.hash,
+                block_number: blockNumber, // Populate as needed
+                wallet: address, // Populate as needed
+                contract: receiverContract,
+                timestamp: data.timestamp,
+                from: from,
+                to: address,
+                tx_cost: tx_cost.toString(),
+                amount: String(receiverTokens),
+                value_usd: 0,
+                method_id: "",
+                is_out: false,
+                is_transfer: false,
+                fee: 0,
+                is_added: false,
+                is_removed: false,
+            };
+            transactions.push(formattedTransaction);
+        }
+    }
     return transactions;
 }
 
