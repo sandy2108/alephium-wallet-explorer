@@ -161,6 +161,12 @@ async function formatTransaction(data: Transaction, address: string): Promise<Wa
         return await dappTransactionsFormat(data, address);
     }
 
+    if (data.inputs?.some(input => !input.tokens)) {
+        // Call nativeTransfers function and return its result
+        return [await nativeTransfers(data, address)];
+    }
+
+
     const tx_cost = (Number(data.gasPrice) * data.gasAmount) / (10 ** 18);
     const isOut = data.inputs?.some(input => input.address === address);
 
@@ -241,12 +247,6 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
 
     const amount = isTokens ? senderTokens :  (Number(totalAlphAmount) || 0) - (Number(outputamount) || 0);
 
-
-    
-
-    
-
-   
     for (const input of data.inputs || []) {
         if (input?.outputRef?.hint !== inputHint && input.address !== address) {
             
@@ -276,20 +276,30 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
     }
 
 
-    let receiverAmounts = 0; // Initialize the amount variable outside the forEach loop
+    let receiverAmounts:number = 0; // Initialize the amount variable outside the forEach loop
     let receiverContract:string = "";
-    let receiverTokens = 0;
+    let receiverTokens:number = 0;
+    let receiverNativeTokens:number = 0;
+
+    let token:boolean = false;
 
     data.outputs?.forEach(output => {
         if (output.hint === inputHint) {
-            receiverAmounts += parseInt(output.attoAlphAmount); // Increment the amount by the value of output.attoAlphAmount
+            
             if(output.tokens){
+                token = true;
                 receiverContract = output.tokens ? output.tokens.map(token => token.id).join() : "";
+                receiverTokens += output.tokens.map(token => parseInt(token.amount)).reduce((acc, val) => acc + val, 0);
             }
             
-            receiverTokens += output.tokens ? output.tokens.map(token => parseInt(token.amount)).reduce((acc, val) => acc + val, 0) : 0;
+        
+            receiverAmounts += parseInt(output.attoAlphAmount); // Increment the amount by the value of output.attoAlphAmount
+            receiverNativeTokens = Math.abs((Number(receiverAmounts) - Number(totalAlphAmount)));
+            
         }
     });
+
+    let receiverTokensAmount = token? receiverTokens : receiverNativeTokens ;
 
     for (const output of data.outputs || []) {
         const from = output.type === "ContractOutput" ? output.address : "";
@@ -304,7 +314,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
                 from: from,
                 to: address,
                 tx_cost: tx_cost.toString(),
-                amount: String(receiverTokens),
+                amount: String(receiverTokensAmount),
                 value_usd: 0,
                 method_id: "",
                 is_out: false,
@@ -322,7 +332,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
 
 async function main() {
     try {
-        const result = await getTransactionsForAddress("1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4", 1, 7);
+        const result = await getTransactionsForAddress("1Hd3g9D9uJ2EbQYXDG6igZz1ZsfBnxCgVz6JZKbiBXsWF", 1, 9);
         console.log(JSON.stringify(result, null, 2));
     } catch (error) {
         console.error('Error starting server:', error);
