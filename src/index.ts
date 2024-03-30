@@ -300,6 +300,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
             };
 
             transactions.push(formattedTransaction);
+            break;
         }
     }
     let receiverAmounts:number = 0; // Initialize the amount variable outside the forEach loop
@@ -327,17 +328,29 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
 
     let receiverTokensAmount = token? receiverTokens : receiverNativeTokens ;
 
+
+
+    let contractAddress:string[] = [];
+
+// Check if outputs exist and then filter by type "ContractOutput"
+    if (data.outputs) {
+        contractAddress = data.outputs
+            .filter(output => output.type === "ContractOutput") // Filter outputs with type "ContractOutput"
+            .map(output => output.address); // Map the addresses of filtered outputs
+    }
+
+
     for (const output of data.outputs || []) {
-        const from = output.type === "ContractOutput" ? output.address : "";
+        
         if (output.hint !== inputHint) {
-            
+
             const formattedTransaction: WalletExplorerTransaction = {
                 hash: data.hash,
                 block_number: blockNumber, // Populate as needed
                 wallet: address, // Populate as needed
                 contract: receiverContract,
                 timestamp: data.timestamp,
-                from: from,
+                from: contractAddress[contractAddress.length -1],
                 to: address,
                 tx_cost: tx_cost.toString(),
                 amount: String(receiverTokensAmount),
@@ -350,6 +363,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
                 is_removed: false,
             };
             transactions.push(formattedTransaction);
+            break
         }
     }
     return transactions;
@@ -358,7 +372,7 @@ async function dappTransactionsFormat(data: Transaction, address: string): Promi
 
 async function main() {
     try {
-        const result = await getTransactionsForAddress("1CBTmbf7HtAEaMRMG5UJyNppuTqo5eCDbcHQ3z2ky4heE", 1, 7);
+        const result = await getTransactionsForAddress("1Bt4D1D1RMqtZ4JFrpUKoUe5rZkvs1MZ7hnepQA6dn9U4", 1, 7);
         console.log(JSON.stringify(result, null, 2));
     } catch (error) {
         console.error('Error starting server:', error);
