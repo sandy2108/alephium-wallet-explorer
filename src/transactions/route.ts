@@ -11,7 +11,7 @@ router.get("/:address", async (req: Request, res: Response) => {
         // `page` and `limit` are now optional query parameters
         // Use a default value if they're not provided or if parsing fails
         const page = parseInt(req.query.page as string) || 1;
-        const limit = parseInt(req.query.limit as string) || 10;
+        const limit = parseInt(req.query.limit as string) || 100;
 
         // Assuming `getTransactionsForAddress` is adjusted to take these parameters directly
         const transactions = await controller.getTransactionsForAddress(address, page, limit);
