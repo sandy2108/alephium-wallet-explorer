@@ -184,21 +184,32 @@ export async function nativeTransfers(
   data: Transaction,
   address: string
 ): Promise<WalletExplorerTransaction> {
+  // Calculate transaction cost
   const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
+  // Check if the wallet is sender
   const isOut = data.inputs?.some((input) => input.address === address);
+  // Collect contract IDs from input tokens
   const contract =
     data.inputs
       ?.flatMap((input) => input.tokens?.map((token) => token.id))
       .filter(Boolean)
       .join(", ") || "";
 
+  // Get unique 'from' addresses from inputs
   const from = Array.isArray(data.inputs)
     ? [...new Set(data.inputs.map((input) => input.address))].join(", ")
     : "";
 
+  // Get the hint of the first input to determine the receiver
   const inputHint = data.inputs?.[0]?.outputRef?.hint;
+
+  // Find the receiver (output with hint different from input hint)
   const receiver = data.outputs?.find((output) => output.hint !== inputHint);
+
+  // Determine the recipient address
   const to = receiver?.address || address;
+
+  // Get the amount received
   let amountReceived;
   if (receiver?.tokens) {
     const amount = receiver.tokens.find(
@@ -209,7 +220,10 @@ export async function nativeTransfers(
     amountReceived = receiver?.attoAlphAmount || 0;
   }
   let formattedTransaction: WalletExplorerTransaction;
+
+  // Check if the sender is different from the current wallet address
   if (from !== address) {
+    // Calculate total amounts for outputs sent from the current wallet address
     let output =
       data.outputs?.filter((output) => output.address === address) ?? [];
     let amounts =
@@ -269,13 +283,20 @@ export async function tokensTransfers(
   data: Transaction,
   address: string
 ): Promise<WalletExplorerTransaction[]> {
+  // Calculate transaction cost
   const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
+
+  // Check if the wallet is sender
   const isOut = data.inputs?.some((input) => input.address === address);
 
+  // Initialize an array to store formatted transactions
   const transactions: WalletExplorerTransaction[] = [];
 
+  // Check if both inputs and outputs exist
   if (data.inputs && data.outputs) {
+    // Set to store unique contract IDs
     const contractIds = new Set<string>();
+    // Collect unique contract IDs from input tokens
     for (const input of data.inputs) {
       const inputContractIds = input.tokens?.map((token) => token.id);
       if (inputContractIds) {
@@ -283,7 +304,9 @@ export async function tokensTransfers(
       }
     }
 
+    // Iterate over unique contract IDs to generate transactions
     for (const contractId of contractIds) {
+      // Find the input and output related to the current contract ID
       const input = data.inputs.find((input) =>
         input.tokens?.some((token) => token.id === contractId)
       );
@@ -294,17 +317,19 @@ export async function tokensTransfers(
       );
 
       if (input && output) {
+        // Get the amount received from the output
         const amountReceived =
           output.tokens?.find((token) => token.id === contractId)?.amount ||
           output.attoAlphAmount ||
           "0";
 
+        // Get contract address from contract ID
         let contractsAddress: string | undefined;
         if (contractId) {
           const contracts = addressFromContractId(contractId); // Pass the string as an argument
           contractsAddress = contracts.toString(); // Remove the argument from the toString method call
         }
-
+        // Create formatted transaction object
         const formattedTransaction: WalletExplorerTransaction = {
           hash: data.hash,
           block_number: await getBlockNumber(data.blockHash), // Populate as needed
@@ -579,25 +604,28 @@ export async function formatTransaction(
   data: Transaction,
   address: string
 ): Promise<WalletExplorerTransaction[]> {
+  // Check if the transaction has contract outputs
   if (data.outputs) {
     const hasContractOutput = data.outputs.some(
       (output) => output.type === "ContractOutput"
     );
+    // If contract outputs are found, format the transaction as a DApp transaction
     if (hasContractOutput) {
       return await dappTransactionsFormat(data, address);
     }
   }
-
+  // Check if the transaction involves token transfers
   if (data.inputs) {
     const hasTokenTransfer = data.inputs.some(
       (input) => input.tokens && input.tokens.length > 0
     );
+    // If token transfers are found, format the transaction accordingly
     if (hasTokenTransfer) {
       return await tokensTransfers(data, address);
     }
   }
 
-  // Handle transactions involving native transfers
+  // If no special cases are detected, format the transaction as a native transfer
   return [await nativeTransfers(data, address)];
 }
 
