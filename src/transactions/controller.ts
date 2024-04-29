@@ -387,6 +387,14 @@ export async function dappTransactionsFormat(
       break; // Break loop once recipient address is found
     }
   }
+  if (to === "") {
+    for (const output of data.outputs || []) {
+      if (output.hint !== inputHint && output.address !== address) {
+        to = output.address;
+        break; // Break loop once recipient address is found
+      }
+    }
+  }
 
   // Iterate over unique token IDs to generate transactions
   for (const tokenId of tokenIds) {
