@@ -82,7 +82,6 @@ async function getTokenBalance(address: string): Promise<Token[]> {
   const tokenIds = LIQUIDITY_TOKEN_CONTRACTS.map((token: string) =>
     getTokenIdTransaction(address, token)
   );
-  const addy = [address];
 
   // Await all promises
   let tokenTransactions: string[] = (await Promise.all(tokenIds)).flat();
@@ -106,6 +105,7 @@ async function getTokenIdTransaction(
   const endpoint = `https://backend.mainnet.alephium.org/addresses/${address}/tokens/${tokenId}/transactions`;
   const response = await fetch(endpoint);
   const data = await response.json();
+  console.log(data);
 
   const result = await getSubContractFromTransactions(data);
   return result;
@@ -116,19 +116,15 @@ async function getSubContractFromTransactions(
 ): Promise<string[]> {
   // Assuming that the subContract is the output message
   const length = transaction.length || 0;
-  const txns = [];
   const uniqueContracts = new Set<string>();
 
   let i = length - 1; // Initialize 'i' outside of the loop
-  for (let i = length - 1; i > 0; i--) {
+  for (let i = length - 1; i >= 0; i--) {
     const trans = transaction[i];
     const inputHint = trans.inputs?.[0].outputRef?.hint;
-    const data = transaction.find((tx) =>
-      tx.outputs?.some((output) => output.hint !== inputHint)
-    );
 
     for (const output of trans.outputs || []) {
-      if (output.hint !== inputHint) {
+      if (output.hint !== inputHint && output.type == "ContractOutput") {
         const subContract = await getParentContractFromSubContract(
           output.address
         );
