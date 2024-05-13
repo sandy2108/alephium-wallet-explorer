@@ -5,7 +5,7 @@ const PORT = 3000;
 
 const transactionsRoute = require("./transactions/route");
 const tokenRoute = require("./tokens/route");
-const defiRoute = require("./defi/route");
+const defiRoute = require("./staking/route");
 
 // Middleware
 app.use(express.json());
