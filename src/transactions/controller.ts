@@ -88,43 +88,15 @@ type BlockHash = {
 
 const blockHashCache = new Map<string, number>();
 
-// export async function getBlockNumber(blockHash: string) {
-
-//     let attempts = 0;
-//     let maxRetries = 5;
-
-//     while (attempts < maxRetries) {
-//         try {
-//             const blockEndpoint = `https://backend.mainnet.alephium.org/blocks/${blockHash}`;
-//             const response = await fetch(blockEndpoint);
-//             if (!response.ok) {
-//                 throw new Error(`Failed to fetch block number for block hash ${blockHash}`);
-//             }
-//             const data = await response.json();
-//             return data.height;
-//         } catch (error) {
-//             attempts += 1
-//             console.error(`Error fetching block number for block hash ${blockHash}:`, error);
-
-//             if (attempts >= maxRetries) {
-//                 throw error;
-//             }
-//             throw error;
-//         }
-
-//     }
-// }
-
-export async function getBlockNumber(blockHash: string) {
-  if (blockHashCache.has(blockHash)) {
-    return blockHashCache.get(blockHash);
-  }
-
+async function getBlockNumber(blockHash: string) {
   let attempts = 0;
-  let maxRetries = 5;
+  const maxRetries = 5;
+  const initialDelay = 100; // 100ms initial delay
+  const maxDelay = 20000; // 10s maximum delay
 
   while (attempts < maxRetries) {
     try {
+      // Fetch the block number from the block hash
       const blockEndpoint = `https://backend.mainnet.alephium.org/blocks/${blockHash}`;
       const response = await fetch(blockEndpoint);
       if (!response.ok) {
@@ -133,15 +105,23 @@ export async function getBlockNumber(blockHash: string) {
         );
       }
       const data = await response.json();
-      blockHashCache.set(blockHash, data.height);
       return data.height;
     } catch (error) {
+      // Increment the attempts counter
       attempts += 1;
       console.error(
         `Error fetching block number for block hash ${blockHash}:`,
         error
       );
 
+      // Calculate the delay using exponential backoff
+      const delay = Math.min(initialDelay * 2 ** attempts, maxDelay);
+      console.log(`Retrying in ${delay}ms...`);
+
+      // Wait for the calculated delay before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      // If we've reached the max retries, throw the error
       if (attempts >= maxRetries) {
         throw error;
       }
@@ -204,7 +184,9 @@ export async function nativeTransfers(
   const inputHint = data.inputs?.[0]?.outputRef?.hint;
 
   // Find the receiver (output with hint different from input hint)
-  const receiver = data.outputs?.find((output) => output.hint !== inputHint);
+  let receiver =
+    data.outputs?.find((output) => output.hint !== inputHint) ||
+    data.outputs?.find((output) => output.hint === inputHint);
 
   // Determine the recipient address
   const to = receiver?.address || address;
@@ -245,7 +227,7 @@ export async function nativeTransfers(
       to: to,
       portfolio_id: 0,
       tx_cost: tx_cost.toString(),
-      amount: String(amounts) || "0",
+      amount: String(BigInt(amounts)) || "0",
       value_usd: 0,
       method_id: "",
       is_out: isOut,
@@ -265,7 +247,7 @@ export async function nativeTransfers(
       to: to,
       portfolio_id: 0,
       tx_cost: tx_cost.toString(),
-      amount: String(amountReceived),
+      amount: String(BigInt(amountReceived)),
       value_usd: 0,
       method_id: "",
       is_out: isOut,
@@ -310,11 +292,19 @@ export async function tokensTransfers(
       const input = data.inputs.find((input) =>
         input.tokens?.some((token) => token.id === contractId)
       );
-      const output = data.outputs.find(
+
+      let output;
+      output = data.outputs.find(
         (output) =>
           output.hint !== input?.outputRef?.hint &&
           output.tokens?.some((token) => token.id === contractId)
       );
+
+      if (!output) {
+        output = data.outputs.find((output) =>
+          output.tokens?.some((token) => token.id === contractId)
+        );
+      }
 
       if (input && output) {
         // Get the amount received from the output
@@ -339,7 +329,7 @@ export async function tokensTransfers(
           from: input.address || "",
           to: output.address || "",
           tx_cost: tx_cost.toString(),
-          amount: String(amountReceived),
+          amount: String(BigInt(amountReceived)),
           value_usd: 0,
           method_id: "",
           is_out: isOut || false,
@@ -425,7 +415,9 @@ export async function dappTransactionsFormat(
           contractsAddress = contracts.toString(); // Remove the argument from the toString method call
         }
         if (matchingToken) {
-          const amount = (Number(matchingToken.amount) || 0) - finalAmount;
+          const amount = Math.abs(
+            (Number(matchingToken.amount) || 0) - finalAmount
+          );
           const transaction: WalletExplorerTransaction = {
             hash: data.hash,
             block_number: blockNumber,
@@ -435,7 +427,7 @@ export async function dappTransactionsFormat(
             from: address,
             to: to,
             tx_cost: tx_cost.toString(),
-            amount: String(amount),
+            amount: String(BigInt(amount)),
             value_usd: 0,
             method_id: "",
             is_out: isOut || false,
@@ -482,7 +474,7 @@ export async function dappTransactionsFormat(
       from: address,
       to: to,
       tx_cost: tx_cost.toString(),
-      amount: String(amount),
+      amount: String(BigInt(amount)),
       value_usd: 0,
       method_id: "",
       is_out: isOut || false,
@@ -523,22 +515,22 @@ export async function dappTransactionsFormat(
           (token) => token.id === tokenId
         );
 
-        let contractsAddress: string | undefined;
+        let contract: string | undefined;
         if (tokenId) {
           const contracts = addressFromContractId(tokenId); // Pass the string as an argument
-          contractsAddress = contracts.toString(); // Remove the argument from the toString method call
+          contract = contracts.toString(); // Remove the argument from the toString method call
         }
         if (matchingToken) {
           const formattedTransaction: WalletExplorerTransaction = {
             hash: data.hash,
             block_number: blockNumber || 0, // Populate with appropriate value
             wallet: address || "", // Populate with appropriate value
-            contract: contractsAddress || "",
+            contract: contract || "",
             timestamp: data.timestamp,
             from: contractAddress[contractAddress.length - 1] || "", // Populate with appropriate value
             to: address || "", // Populate with appropriate value
             tx_cost: tx_cost.toString(),
-            amount: String(matchingToken.amount || 0), // Extract amount from matchingToken
+            amount: String(BigInt(matchingToken.amount) || 0), // Extract amount from matchingToken
             value_usd: 0,
             method_id: "",
             is_out: false,
@@ -590,7 +582,7 @@ export async function dappTransactionsFormat(
           from: contractAddress[contractAddress.length - 1],
           to: address,
           tx_cost: tx_cost.toString(),
-          amount: String(finalamount),
+          amount: String(BigInt(finalamount)),
           value_usd: 0,
           method_id: "",
           is_out: false,
