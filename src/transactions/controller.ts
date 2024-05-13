@@ -402,70 +402,77 @@ export async function dappTransactionsFormat(
       }
     }
 
-    // Process each input for the same token ID
+    const aggregatedTransactions: { [key: string]: bigint } = {};
+
     for (const input of data.inputs || []) {
       if (input?.unlockScript && input.tokens) {
         const matchingToken = input.tokens.find(
           (token) => token.id === tokenId
         );
 
-        let contractsAddress: string | undefined;
+        let contractsAddress;
         if (tokenId) {
-          const contracts = addressFromContractId(tokenId); // Pass the string as an argument
-          contractsAddress = contracts.toString(); // Remove the argument from the toString method call
+          const contracts = addressFromContractId(tokenId); // Assuming this function returns the contract address from the token ID
+          contractsAddress = contracts.toString();
         }
+
         if (matchingToken) {
           const amount = Math.abs(
             (Number(matchingToken.amount) || 0) - finalAmount
           );
-          const transaction: WalletExplorerTransaction = {
-            hash: data.hash,
-            block_number: blockNumber,
-            wallet: address,
-            contract: contractsAddress || "",
-            timestamp: data.timestamp,
-            from: address,
-            to: to,
-            tx_cost: tx_cost.toString(),
-            amount: String(BigInt(amount)),
-            value_usd: 0,
-            method_id: "",
-            is_out: isOut || false,
-            is_transfer: false,
-            fee: 0,
-            is_added: false,
-            is_removed: false,
-          };
-          transactions.push(transaction);
+
+          // Aggregate amounts for transactions with the same contract address
+          if (contractsAddress) {
+            if (contractsAddress in aggregatedTransactions) {
+              aggregatedTransactions[contractsAddress] += BigInt(amount);
+            } else {
+              aggregatedTransactions[contractsAddress] = BigInt(amount);
+            }
+          }
         }
       }
     }
+
+    const transaction = Object.entries(aggregatedTransactions).map(
+      ([contract, amount]) => ({
+        hash: data.hash,
+        block_number: blockNumber,
+        wallet: address,
+        contract: contract,
+        timestamp: data.timestamp,
+        from: address,
+        to: to,
+        tx_cost: tx_cost.toString(),
+        amount: amount.toString(),
+        value_usd: 0,
+        method_id: "",
+        is_out: isOut || false,
+        is_transfer: false,
+        fee: 0,
+        is_added: false,
+        is_removed: false,
+      })
+    );
+
+    transactions.push(...transaction);
   }
 
-  // Calculate total native amount on the Input array
-  let totalNativeAmount = 0;
+  let inputAmount = 0;
+  let outputAmount = 0;
+
   for (const input of data.inputs || []) {
-    if (!input.tokens) {
-      totalNativeAmount += Number(input.attoAlphAmount || "0");
+    if (input.unlockScript && input.address == address) {
+      inputAmount += Number(input.attoAlphAmount);
     }
   }
 
-  // const totalNativeAmount = totalNativeAmountOnOutput(data, inputHint? inputHint : 0);
-
-  const filteredInputs = data.inputs?.filter(
-    (input) => input.address === address
-  );
-  const totalAlphAmount = filteredInputs?.reduce((total, input) => {
-    return total + parseInt(input.attoAlphAmount ?? "0");
-  }, 0);
-  const outputamount = data.outputs?.[0].tokens
-    ? data.outputs?.[0].tokens.map((amount) => amount.amount)
-    : data.outputs?.[0].attoAlphAmount;
-
-  // Create a single transaction for the total native amount if it's not zero
-  if (totalNativeAmount !== 0) {
-    const amount = Math.abs(Number(totalAlphAmount) - Number(outputamount));
-    const transactionWithoutTokens: WalletExplorerTransaction = {
+  for (const output of data.outputs || []) {
+    if (output?.hint == inputHint && output?.type !== "ContractOutput") {
+      outputAmount += Number(output.attoAlphAmount);
+    }
+  }
+  if (inputAmount > outputAmount) {
+    const transaction: WalletExplorerTransaction = {
       hash: data.hash,
       block_number: blockNumber,
       wallet: address,
@@ -474,7 +481,7 @@ export async function dappTransactionsFormat(
       from: address,
       to: to,
       tx_cost: tx_cost.toString(),
-      amount: String(BigInt(amount)),
+      amount: String(BigInt(inputAmount - outputAmount)),
       value_usd: 0,
       method_id: "",
       is_out: isOut || false,
@@ -483,20 +490,42 @@ export async function dappTransactionsFormat(
       is_added: false,
       is_removed: false,
     };
-    transactions.push(transactionWithoutTokens);
+    transactions.push(transaction);
+  } else if (inputAmount < outputAmount) {
+    const transaction: WalletExplorerTransaction = {
+      hash: data.hash,
+      block_number: blockNumber,
+      wallet: address,
+      contract: "",
+      timestamp: data.timestamp,
+      from: to,
+      to: address,
+      tx_cost: tx_cost.toString(),
+      amount: String(BigInt(outputAmount - inputAmount)),
+      value_usd: 0,
+      method_id: "",
+      is_out: false,
+      is_transfer: false,
+      fee: 0,
+      is_added: false,
+      is_removed: false,
+    };
+    transactions.push(transaction);
   }
 
   // Receivring side
 
   const receiverContractIds = new Set<string>();
 
-  for (const output of data.outputs || []) {
-    if (output.hint == inputHint) {
-      if (output.tokens) {
-        output.tokens.forEach((token) => {
-          receiverContractIds.add(token.id ?? "");
-        });
-      }
+  const outputLength = data.outputs?.length || 0;
+
+  for (let i = 1; i < outputLength; i++) {
+    const output = data.outputs?.[i]; // Accessing the current output in the loop
+
+    if (output?.hint == inputHint && output?.tokens) {
+      output.tokens.forEach((token) => {
+        receiverContractIds.add(token.id ?? "");
+      });
     }
   }
 
@@ -541,58 +570,6 @@ export async function dappTransactionsFormat(
           };
           transactions.push(formattedTransaction);
         }
-      }
-    }
-  }
-
-  //   // Calculate total native amount on the Output array
-  let nativeTokenOnOutput = 0;
-
-  const firstContractIndex = findContractOutputIndex(data.outputs || []);
-
-  const outputLength = data?.outputs?.length || 0;
-
-  if (firstContractIndex !== -1 && firstContractIndex < outputLength) {
-    for (let i = firstContractIndex; i < outputLength; i++) {
-      const output = data?.outputs?.[i];
-      if (
-        output?.hint == inputHint &&
-        output?.type !== "ContractOutput" &&
-        !output?.tokens
-      ) {
-        nativeTokenOnOutput += Number(output?.attoAlphAmount);
-      }
-    }
-  }
-
-  const finalamount = Math.abs(Number(nativeTokenOnOutput));
-
-  // Native Transfer on output array
-  if (finalamount > 0) {
-    for (const output of data.outputs || []) {
-      if (output.hint != inputHint) {
-        const from = output.address || "";
-
-        const transaction: WalletExplorerTransaction = {
-          hash: data.hash,
-          block_number: blockNumber,
-          wallet: address,
-          contract: "",
-          timestamp: data.timestamp,
-          from: contractAddress[contractAddress.length - 1],
-          to: address,
-          tx_cost: tx_cost.toString(),
-          amount: String(BigInt(finalamount)),
-          value_usd: 0,
-          method_id: "",
-          is_out: false,
-          is_transfer: false,
-          fee: 0,
-          is_added: false,
-          is_removed: false,
-        };
-        transactions.push(transaction);
-        break;
       }
     }
   }
