@@ -118,6 +118,19 @@ async function findSubContractId(userAddress: string) {
       LPPairId
     );
 
+    const UserBalancesOUTTransactions = UserBalancesOUT(transactions, LPPairId);
+    const UserBalancesINTransactions = UserBalancesIN(transactions, LPPairId);
+
+    const OutAmount = UserBalancesOUTTransactions.reduce((acc, curr) => {
+      return acc + BigInt(curr.amount ?? 0);
+    }, BigInt(0));
+
+    const InAmount = UserBalancesINTransactions.reduce((acc, curr) => {
+      return acc + BigInt(curr.amount ?? 0);
+    }, BigInt(0));
+
+    const UserBalance = Math.floor(Number(InAmount) - Number(OutAmount));
+
     const totalStakedAmount = StakedfilteredTransactions.reduce((acc, curr) => {
       return acc + BigInt(curr.amount ?? 0);
     }, BigInt(0));
@@ -137,6 +150,7 @@ async function findSubContractId(userAddress: string) {
       type: "LP",
       pair: LPPairId,
       staked: stakedAmount,
+      balance: UserBalance,
       assets: Assets,
     });
   }
@@ -172,19 +186,21 @@ const unstakedTransactions = (
   );
 };
 
-const UserBalancesOUT = (transaction: WalletExplorerTransaction[]) => {
+const UserBalancesOUT = (
+  transactions: WalletExplorerTransaction[],
+  LPPairId: string
+) => {
   return transactions.filter(
-    (txn) =>
-      txn.contract == "21cSqJ6AgZ1sYCGX7BueqBtjGXRKKtsh7jvvE8HFGQNZ5" &&
-      txn.is_out == true
+    (txn) => txn.contract == LPPairId && txn.is_out == true
   );
 };
 
-const UserBalancesIN = (transaction: WalletExplorerTransaction[]) => {
+const UserBalancesIN = (
+  transactions: WalletExplorerTransaction[],
+  LPPairId: string
+) => {
   return transactions.filter(
-    (txn) =>
-      txn.contract == "21cSqJ6AgZ1sYCGX7BueqBtjGXRKKtsh7jvvE8HFGQNZ5" &&
-      txn.is_out == false
+    (txn) => txn.contract == LPPairId && txn.is_out == false
   );
 };
 
