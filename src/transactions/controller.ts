@@ -386,18 +386,24 @@ export async function dappTransactionsFormat(
     }
   }
 
+  for (const tokens of tokenIds) {
+  }
+
   // Iterate over unique token IDs to generate transactions
   for (const tokenId of tokenIds) {
-    let finalAmount = 0; // Reset finalAmount for each token ID
-
-    // Find total output amount for this token ID
+    let tokenOutputAmount: bigint = BigInt(0);
     for (const output of data.outputs || []) {
-      if (output.hint === inputHint && output.tokens) {
+      if (
+        output.hint === inputHint &&
+        output.tokens &&
+        output.type !== "ContractOutput" &&
+        output.address === address
+      ) {
         const matchingOutputTokens = output.tokens.find(
           (token) => token.id === tokenId
         );
         if (matchingOutputTokens) {
-          finalAmount = parseInt(matchingOutputTokens.amount);
+          tokenOutputAmount += BigInt(matchingOutputTokens.amount);
         }
       }
     }
@@ -417,9 +423,7 @@ export async function dappTransactionsFormat(
         }
 
         if (matchingToken) {
-          const amount = Math.abs(
-            (Number(matchingToken.amount) || 0) - finalAmount
-          );
+          const amount = Math.abs(Number(matchingToken.amount) || 0);
 
           // Aggregate amounts for transactions with the same contract address
           if (contractsAddress) {
@@ -443,7 +447,9 @@ export async function dappTransactionsFormat(
         from: address,
         to: to,
         tx_cost: tx_cost.toString(),
-        amount: amount.toString(),
+        amount: (
+          Number(BigInt(amount)) - Number(BigInt(tokenOutputAmount))
+        ).toString(),
         value_usd: 0,
         method_id: "",
         is_out: isOut || false,
