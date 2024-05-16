@@ -54,6 +54,9 @@ const AYIN_DEX_STAKING_POOL_CONTRACT = [
       "0000000000000000000000000000000000000000000000000000000000000000",
       "vT49PY8ksoUL6NcXiZ1t2wAmC7tTPRfFfER8n3UCLvXy", //AYIN
     ],
+    totalSupply: 713576.0806,
+    pooledALPH: 2013462.5754,
+    pooledPair: 263457.3798,
   },
   {
     parentContract: "xoCP1VYdJXoAr6hbmm7dkJAr8e377KXXb8cZ7CZDau5Z",
@@ -62,6 +65,9 @@ const AYIN_DEX_STAKING_POOL_CONTRACT = [
       "0000000000000000000000000000000000000000000000000000000000000000",
       "zSRgc7goAYUgYsEBYdAzogyyeKv3ne3uvWb3VDtxnaEK", // USDT
     ],
+    totalSupply: 1.1792,
+    pooledALPH: 966466.6623,
+    pooledPair: 1790451.5645,
   },
   {
     parentContract: "w7oLoY2txEBb5nzubQqrcdYaiM8NcCL9kMYXY67YfnUo",
@@ -70,6 +76,9 @@ const AYIN_DEX_STAKING_POOL_CONTRACT = [
       "0000000000000000000000000000000000000000000000000000000000000000",
       "21cSqJ6AgZ1sYCGX7BueqBtjGXRKKtsh7jvvE8HFGQNZ5", //ALF
     ],
+    totalSupply: 0.404,
+    pooledALPH: 5414.9322,
+    pooledPair: 33141.2323,
   },
 ];
 
@@ -96,6 +105,9 @@ async function findSubContractId(userAddress: string) {
       parentSubContractAddress: addressFromContract,
       LPPairId: contractAddress.LPpairId, // Add LPPairId only once
       Assets: contractAddress.Assets,
+      totalSupply: contractAddress.totalSupply,
+      pooledALPH: contractAddress.pooledALPH,
+      pooledPair: contractAddress.pooledPair,
     });
   }
 
@@ -146,11 +158,25 @@ async function findSubContractId(userAddress: string) {
       Number(totalStakedAmount) - Number(totalUnStakedAmount)
     );
 
+    const stakedAmountInDecimal = (stakedAmount / 10 ** 18).toFixed(18);
+    const balanceInDecimal = (UserBalance / 10 ** 18).toFixed(18);
+
+    const userReservePercentage =
+      (Number(stakedAmountInDecimal) / info.totalSupply) * 100;
+
+    const { ALPH, ALF } = await calculateTokenShare(
+      info.pooledALPH,
+      info.pooledPair,
+      info.totalSupply,
+      userReservePercentage
+    );
     result.push({
       type: "LP",
       pair: LPPairId,
-      staked: stakedAmount,
-      balance: UserBalance,
+      staked: stakedAmountInDecimal,
+      balance: balanceInDecimal,
+      userReservePercentage: userReservePercentage,
+      StakedAssets: { ALPH: ALPH, ALF: ALF },
       assets: Assets,
     });
   }
@@ -164,6 +190,22 @@ async function base58ToHex(base58Address: string): Promise<string> {
   // Convert the decoded bytes to hexadecimal
   const hexAddress: string = decodedBytes.toString("hex");
   return hexAddress;
+}
+
+async function calculateTokenShare(
+  pooledALPH: number,
+  pooledALF: number,
+  totalLPTokens: number,
+  yourPoolSharePercentage: number
+): Promise<{ ALPH: number; ALF: number }> {
+  // Calculate your LP token share
+  const yourLPShare = totalLPTokens * (yourPoolSharePercentage / 100);
+
+  // Calculate your share of each token
+  const yourALPH = yourLPShare * (pooledALPH / totalLPTokens);
+  const yourALF = yourLPShare * (pooledALF / totalLPTokens);
+
+  return { ALPH: yourALPH, ALF: yourALF };
 }
 
 const stakedTransactions = (
