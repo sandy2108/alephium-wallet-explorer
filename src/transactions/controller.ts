@@ -230,7 +230,7 @@ export async function nativeTransfers(
       amount: String(BigInt(amounts)) || "0",
       value_usd: 0,
       method_id: "",
-      is_out: isOut,
+      is_out: false,
       is_transfer: false,
       fee: 0,
       is_added: false,
@@ -250,7 +250,7 @@ export async function nativeTransfers(
       amount: String(BigInt(amountReceived)),
       value_usd: 0,
       method_id: "",
-      is_out: isOut,
+      is_out: true,
       is_transfer: false,
       fee: 0,
       is_added: false,
@@ -267,7 +267,8 @@ export async function tokensTransfers(
 ): Promise<WalletExplorerTransaction[]> {
   // Calculate transaction cost
   const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
-
+  const blockNumber = await getBlockNumber(data.blockHash);
+  const inputHint = data.inputs?.[0]?.outputRef?.hint;
   // Check if the wallet is sender
   const isOut = data.inputs?.some((input) => input.address === address);
 
@@ -310,7 +311,6 @@ export async function tokensTransfers(
         // Get the amount received from the output
         const amountReceived =
           output.tokens?.find((token) => token.id === contractId)?.amount ||
-          output.attoAlphAmount ||
           "0";
 
         // Get contract address from contract ID
@@ -322,7 +322,7 @@ export async function tokensTransfers(
         // Create formatted transaction object
         const formattedTransaction: WalletExplorerTransaction = {
           hash: data.hash,
-          block_number: await getBlockNumber(data.blockHash), // Populate as needed
+          block_number: blockNumber, // Populate as needed
           wallet: address, // Populate as needed
           contract: contractsAddress || "",
           timestamp: data.timestamp,
@@ -332,7 +332,7 @@ export async function tokensTransfers(
           amount: String(BigInt(amountReceived)),
           value_usd: 0,
           method_id: "",
-          is_out: isOut || false,
+          is_out: input.address === address ? true : false,
           is_transfer: false,
           fee: 0,
           is_added: false,
@@ -344,32 +344,10 @@ export async function tokensTransfers(
     }
   }
 
-  return transactions;
-}
+  //ALPH NATIVE TRANSFER
+  let inputAmount = 0;
+  let outputAmount = 0;
 
-export async function dappTransactionsFormat(
-  data: Transaction,
-  address: string
-): Promise<WalletExplorerTransaction[]> {
-  const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
-  const isOut = data.inputs?.some((input) => input.address === address);
-  const transactions: WalletExplorerTransaction[] = [];
-  const inputHint = data.inputs?.[0]?.outputRef?.hint;
-  const blockNumber = await getBlockNumber(data.blockHash);
-
-  // Set to store unique token IDs
-  const tokenIds = new Set<string>();
-
-  // Process inputs to collect unique token IDs
-  data.inputs?.forEach((input) => {
-    if (input.unlockScript && input.tokens) {
-      input.tokens.forEach((token) => {
-        tokenIds.add(token.id ?? "");
-      });
-    }
-  });
-
-  // Determine the recipient address
   let to: string = "";
   for (const input of data.inputs || []) {
     if (input?.outputRef?.hint !== inputHint && input.address !== address) {
@@ -377,6 +355,7 @@ export async function dappTransactionsFormat(
       break; // Break loop once recipient address is found
     }
   }
+  // If recipient address is not found in inputs, search in outputs
   if (to === "") {
     for (const output of data.outputs || []) {
       if (output.hint !== inputHint && output.address !== address) {
@@ -386,79 +365,18 @@ export async function dappTransactionsFormat(
     }
   }
 
-  // Iterate over unique token IDs to generate transactions
-  for (const tokenId of tokenIds) {
-    let finalAmount = 0; // Reset finalAmount for each token ID
+  let conditionalHint: number | undefined = undefined;
 
-    // Find total output amount for this token ID
-    for (const output of data.outputs || []) {
-      if (output.hint === inputHint && output.tokens) {
-        const matchingOutputTokens = output.tokens.find(
-          (token) => token.id === tokenId
-        );
-        if (matchingOutputTokens) {
-          finalAmount = parseInt(matchingOutputTokens.amount);
-        }
-      }
+  for (const input of data.inputs || []) {
+    if (input.address === address && input.outputRef?.hint) {
+      conditionalHint = input.outputRef.hint;
+      break;
     }
-
-    const aggregatedTransactions: { [key: string]: bigint } = {};
-
-    for (const input of data.inputs || []) {
-      if (input?.unlockScript && input.tokens) {
-        const matchingToken = input.tokens.find(
-          (token) => token.id === tokenId
-        );
-
-        let contractsAddress;
-        if (tokenId) {
-          const contracts = addressFromContractId(tokenId); // Assuming this function returns the contract address from the token ID
-          contractsAddress = contracts.toString();
-        }
-
-        if (matchingToken) {
-          const amount = Math.abs(
-            (Number(matchingToken.amount) || 0) - finalAmount
-          );
-
-          // Aggregate amounts for transactions with the same contract address
-          if (contractsAddress) {
-            if (contractsAddress in aggregatedTransactions) {
-              aggregatedTransactions[contractsAddress] += BigInt(amount);
-            } else {
-              aggregatedTransactions[contractsAddress] = BigInt(amount);
-            }
-          }
-        }
-      }
-    }
-
-    const transaction = Object.entries(aggregatedTransactions).map(
-      ([contract, amount]) => ({
-        hash: data.hash,
-        block_number: blockNumber,
-        wallet: address,
-        contract: contract,
-        timestamp: data.timestamp,
-        from: address,
-        to: to,
-        tx_cost: tx_cost.toString(),
-        amount: amount.toString(),
-        value_usd: 0,
-        method_id: "",
-        is_out: isOut || false,
-        is_transfer: false,
-        fee: 0,
-        is_added: false,
-        is_removed: false,
-      })
-    );
-
-    transactions.push(...transaction);
   }
 
-  let inputAmount = 0;
-  let outputAmount = 0;
+  if (!inputHint && data.inputs && data.inputs.length > 0) {
+    conditionalHint = 0;
+  }
 
   for (const input of data.inputs || []) {
     if (input.unlockScript && input.address == address) {
@@ -467,7 +385,10 @@ export async function dappTransactionsFormat(
   }
 
   for (const output of data.outputs || []) {
-    if (output?.hint == inputHint && output?.type !== "ContractOutput") {
+    if (
+      (output?.hint == conditionalHint || output.address == address) &&
+      output?.type !== "ContractOutput"
+    ) {
       outputAmount += Number(output.attoAlphAmount);
     }
   }
@@ -484,7 +405,7 @@ export async function dappTransactionsFormat(
       amount: String(BigInt(inputAmount - outputAmount)),
       value_usd: 0,
       method_id: "",
-      is_out: isOut || false,
+      is_out: true,
       is_transfer: false,
       fee: 0,
       is_added: false,
@@ -513,65 +434,256 @@ export async function dappTransactionsFormat(
     transactions.push(transaction);
   }
 
-  // Receivring side
+  return transactions;
+}
 
-  const receiverContractIds = new Set<string>();
+export async function dappTransactionsFormat(
+  data: Transaction,
+  address: string
+): Promise<WalletExplorerTransaction[]> {
+  const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
+  const isOut = data.inputs?.some((input) => input.address === address);
+  const transactions: WalletExplorerTransaction[] = [];
+  const inputHint = data.inputs?.[0]?.outputRef?.hint;
+  const blockNumber = await getBlockNumber(data.blockHash);
 
-  const outputLength = data.outputs?.length || 0;
+  // Set to store unique token IDs
+  const totalTokenIds = new Set<string>();
 
-  for (let i = 1; i < outputLength; i++) {
-    const output = data.outputs?.[i]; // Accessing the current output in the loop
-
-    if (output?.hint == inputHint && output?.tokens) {
-      output.tokens.forEach((token) => {
-        receiverContractIds.add(token.id ?? "");
+  // Process inputs to collect unique token IDs and store it in the Set
+  data.inputs?.forEach((input) => {
+    if (input.unlockScript && input.tokens) {
+      input.tokens.forEach((token) => {
+        totalTokenIds.add(token.id ?? "");
       });
     }
+  });
+
+  // Process outputs to collect unique token IDs and store it in the Set
+  data.outputs?.forEach((output) => {
+    if (
+      output.tokens &&
+      output?.hint == inputHint &&
+      output.type !== "ContractOutput"
+    ) {
+      output.tokens.forEach((token) => {
+        totalTokenIds.add(token.id);
+      });
+    }
+  });
+
+  // Determine the recipient address
+  let to: string = "";
+  for (const input of data.inputs || []) {
+    if (input?.outputRef?.hint !== inputHint && input.address !== address) {
+      to = input?.address || "";
+      break; // Break loop once recipient address is found
+    }
   }
-
-  let contractAddress: string[] = [];
-
-  if (data.outputs) {
-    contractAddress = data.outputs
-      .filter((output) => output.type === "ContractOutput") // Filter outputs with type "ContractOutput"
-      .map((output) => output.address); // Map the addresses of filtered outputs
-  }
-
-  for (const tokenId of receiverContractIds) {
+  // If recipient address is not found in inputs, search in outputs
+  if (to === "") {
     for (const output of data.outputs || []) {
-      if (output.hint === inputHint && output.tokens) {
-        const matchingToken = output.tokens.find(
-          (token) => token.id === tokenId
-        );
-
-        let contract: string | undefined;
-        if (tokenId) {
-          const contracts = addressFromContractId(tokenId); // Pass the string as an argument
-          contract = contracts.toString(); // Remove the argument from the toString method call
-        }
-        if (matchingToken) {
-          const formattedTransaction: WalletExplorerTransaction = {
-            hash: data.hash,
-            block_number: blockNumber || 0, // Populate with appropriate value
-            wallet: address || "", // Populate with appropriate value
-            contract: contract || "",
-            timestamp: data.timestamp,
-            from: contractAddress[contractAddress.length - 1] || "", // Populate with appropriate value
-            to: address || "", // Populate with appropriate value
-            tx_cost: tx_cost.toString(),
-            amount: String(BigInt(matchingToken.amount) || 0), // Extract amount from matchingToken
-            value_usd: 0,
-            method_id: "",
-            is_out: false,
-            is_transfer: false,
-            fee: 0,
-            is_added: false,
-            is_removed: false,
-          };
-          transactions.push(formattedTransaction);
-        }
+      if (output.hint !== inputHint && output.address !== address) {
+        to = output.address;
+        break; // Break loop once recipient address is found
       }
     }
+  }
+
+  // Iterate over unique token IDs to generate transactions
+  for (const tokenId of totalTokenIds) {
+    let tokenOutputAmount: bigint = BigInt(0);
+    let tokenInputAmount: bigint = BigInt(0);
+
+    //Filtering the TokenId Amount from the output Array
+    const matchingOutputTokens =
+      data.outputs?.filter(
+        (output) =>
+          output.tokens?.some((token) => token.id === tokenId) &&
+          output.hint === inputHint &&
+          output.address === address &&
+          output.type !== "ContractOutput"
+      ) || [];
+    //Calculate the total amount of tokens in Output Array
+    if (matchingOutputTokens.length > 0) {
+      for (const output of matchingOutputTokens) {
+        if (output.tokens) {
+          for (const token of output.tokens) {
+            const tokenAmount = BigInt(token.amount || 0);
+            tokenOutputAmount += tokenAmount;
+          }
+        }
+      }
+    } else {
+      tokenOutputAmount = BigInt(0); // If no matching output tokens are found, set the amount to 0
+    }
+
+    // Filtering the TokenId Amount from the Input Array
+    const matchingInputTokens =
+      data.inputs?.filter(
+        (input) =>
+          input.address === address &&
+          input.unlockScript &&
+          input.tokens &&
+          input.tokens.some((token) => token.id === tokenId)
+      ) || [];
+    //Calculate the total amount of tokens in Output Array
+    if (matchingInputTokens.length > 0) {
+      for (const input of matchingInputTokens) {
+        // Ensure input.tokens is defined before using it
+        if (input.tokens) {
+          for (const token of input.tokens) {
+            // Ensure token.amount is defined before adding it to tokenInputAmounts
+            const tokenAmount = BigInt(token.amount || 0);
+            tokenInputAmount += tokenAmount;
+          }
+        }
+      }
+    } else {
+      tokenInputAmount = BigInt(0); // If no matching output tokens are found, set the amount to 0
+    }
+
+    // Initialize an array to store contract addresses
+    // because the contract should return the amount to user so the contract address is the sender
+    let contractAddress: string[] = [];
+
+    if (data.outputs) {
+      contractAddress = data.outputs
+        .filter((output) => output.type === "ContractOutput") // Filter outputs with type "ContractOutput"
+        .map((output) => output.address); // Map the addresses of filtered outputs
+    }
+
+    // If the input amount is greater than the output amount,
+    // then it should return back the remaining amount.
+    // so we subtract the input amount from the output amount and return it in amount field
+
+    if (tokenInputAmount > tokenOutputAmount) {
+      let contractsAddress;
+      if (tokenId) {
+        const contracts = addressFromContractId(tokenId);
+        contractsAddress = contracts.toString();
+      }
+      const transaction = {
+        hash: data.hash,
+        block_number: blockNumber,
+        wallet: address,
+        contract: contractsAddress || "",
+        timestamp: data.timestamp,
+        from: address,
+        to: to,
+        tx_cost: tx_cost.toString(),
+        amount: String(BigInt(tokenInputAmount) - BigInt(tokenOutputAmount)),
+        value_usd: 0,
+        method_id: "",
+        is_out: true,
+        is_transfer: false,
+        fee: 0,
+        is_added: false,
+        is_removed: false,
+      };
+      transactions.push(transaction);
+    } else if (tokenInputAmount < tokenOutputAmount) {
+      // If the output amount is greater than the input amount,
+      // so we subtract the output amount from the input amount and return it in amount field
+      // Sender is the contract address in this case because we interact with contract
+      let contractsAddress;
+      if (tokenId) {
+        const contracts = addressFromContractId(tokenId);
+        contractsAddress = contracts.toString();
+      }
+      const transaction = {
+        hash: data.hash,
+        block_number: blockNumber,
+        wallet: address,
+        contract: contractsAddress || "",
+        timestamp: data.timestamp,
+        from: contractAddress[contractAddress.length - 1] || "",
+        to: address,
+        tx_cost: tx_cost.toString(),
+        amount: String(BigInt(tokenOutputAmount) - BigInt(tokenInputAmount)),
+        value_usd: 0,
+        method_id: "",
+        is_out: false,
+        is_transfer: false,
+        fee: 0,
+        is_added: false,
+        is_removed: false,
+      };
+      transactions.push(transaction);
+    }
+  }
+
+  //ALPH NATIVE TRANSFER
+  let inputAmount = 0;
+  let outputAmount = 0;
+
+  let conditionalHint: number | undefined = undefined;
+
+  for (const input of data.inputs || []) {
+    if (input.address === address && input.outputRef?.hint) {
+      conditionalHint = input.outputRef.hint;
+      break;
+    }
+  }
+
+  if (!inputHint && data.inputs && data.inputs.length > 0) {
+    conditionalHint = 0;
+  }
+
+  for (const input of data.inputs || []) {
+    if (input.unlockScript && input.address == address) {
+      inputAmount += Number(input.attoAlphAmount);
+    }
+  }
+
+  for (const output of data.outputs || []) {
+    if (
+      (output?.hint == conditionalHint || output.address == address) &&
+      output?.type !== "ContractOutput"
+    ) {
+      outputAmount += Number(output.attoAlphAmount);
+    }
+  }
+  if (inputAmount > outputAmount) {
+    const transaction: WalletExplorerTransaction = {
+      hash: data.hash,
+      block_number: blockNumber,
+      wallet: address,
+      contract: "",
+      timestamp: data.timestamp,
+      from: address,
+      to: to,
+      tx_cost: tx_cost.toString(),
+      amount: String(BigInt(inputAmount - outputAmount)),
+      value_usd: 0,
+      method_id: "",
+      is_out: true,
+      is_transfer: false,
+      fee: 0,
+      is_added: false,
+      is_removed: false,
+    };
+    transactions.push(transaction);
+  } else if (inputAmount < outputAmount) {
+    const transaction: WalletExplorerTransaction = {
+      hash: data.hash,
+      block_number: blockNumber,
+      wallet: address,
+      contract: "",
+      timestamp: data.timestamp,
+      from: to,
+      to: address,
+      tx_cost: tx_cost.toString(),
+      amount: String(BigInt(outputAmount - inputAmount)),
+      value_usd: 0,
+      method_id: "",
+      is_out: false,
+      is_transfer: false,
+      fee: 0,
+      is_added: false,
+      is_removed: false,
+    };
+    transactions.push(transaction);
   }
 
   return transactions;
@@ -604,15 +716,6 @@ export async function formatTransaction(
 
   // If no special cases are detected, format the transaction as a native transfer
   return [await nativeTransfers(data, address)];
-}
-
-function findContractOutputIndex(outputs: any[]): number {
-  for (let i = 0; i < outputs.length; i++) {
-    if (outputs[i].type === "ContractOutput") {
-      return i;
-    }
-  }
-  return -1; // If no "ContractOutput" is found
 }
 
 module.exports = {
