@@ -86,8 +86,6 @@ type BlockHash = {
   hashRate: string;
 };
 
-const blockHashCache = new Map<string, number>();
-
 async function getBlockNumber(blockHash: string) {
   let attempts = 0;
   const maxRetries = 5;
@@ -138,14 +136,15 @@ export async function getTransactionsForAddress(
     const walletTxnPoint: string = `https://backend.mainnet.alephium.org/addresses/${address}/transactions?page=${page}&limit=${limit}`;
     const response = await fetch(walletTxnPoint);
     if (!response.ok) {
-      if (response.status === 400) {
-        throw new Error("Bad request: Something bad in the request");
-      } else if (response.status === 401) {
-        throw new Error("Unauthorized");
-      } else if (response.status === 404) {
-        throw new Error("Not found");
-      } else {
-        throw new Error("Failed to fetch transactions");
+      switch (response.status) {
+        case 400:
+          throw new Error("Bad request: Something bad in the request");
+        case 401:
+          throw new Error("Unauthorized");
+        case 404:
+          throw new Error("Not found");
+        default:
+          throw new Error("Failed to fetch transactions");
       }
     }
     const data: Transaction[] = await response.json();
@@ -155,7 +154,10 @@ export async function getTransactionsForAddress(
     const formatTxn = await Promise.all(formatTxnPromises);
     return formatTxn.flat();
   } catch (error) {
-    console.error("Error on Fetching Wallet Transactions:", error);
+    console.error(
+      "Error on Fetching Wallet Transactions:",
+      (error as Error)?.message || error
+    );
     throw error;
   }
 }
@@ -166,8 +168,7 @@ export async function nativeTransfers(
 ): Promise<WalletExplorerTransaction> {
   // Calculate transaction cost
   const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
-  // Check if the wallet is sender
-  const isOut = data.inputs?.some((input) => input.address === address);
+
   // Collect contract IDs from input tokens
   const contract =
     data.inputs
@@ -192,30 +193,22 @@ export async function nativeTransfers(
   const to = receiver?.address || address;
 
   // Get the amount received
-  let amountReceived;
-  if (receiver?.tokens) {
-    const amount = receiver.tokens.find(
-      (token) => token.id === data.inputs?.[0]?.tokens?.[0]?.id
-    );
-    amountReceived = amount?.amount || 0;
-  } else {
-    amountReceived = receiver?.attoAlphAmount || 0;
-  }
+  const amountReceived = receiver?.tokens
+    ? receiver.tokens.find(
+        (token) => token.id === data.inputs?.[0]?.tokens?.[0]?.id
+      )?.amount || "0"
+    : receiver?.attoAlphAmount || "0";
+
+  // Initialize formatted transaction object
   let formattedTransaction: WalletExplorerTransaction;
 
   // Check if the sender is different from the current wallet address
   if (from !== address) {
-    // Calculate total amounts for outputs sent from the current wallet address
-    let output =
-      data.outputs?.filter((output) => output.address === address) ?? [];
-    let amounts =
-      output?.reduce(
-        (total, output) => total + parseInt(output.attoAlphAmount),
-        0
-      ) ?? 0;
-    const from = Array.isArray(data.inputs)
-      ? [...new Set(data.inputs.map((input) => input.address))].join(", ")
-      : "";
+    const outputAmounts =
+      data.outputs
+        ?.filter((output) => output.address === address)
+        ?.reduce((total, output) => total + Number(output.attoAlphAmount), 0) ||
+      0;
 
     formattedTransaction = {
       hash: data.hash,
@@ -227,7 +220,7 @@ export async function nativeTransfers(
       to: to,
       portfolio_id: 0,
       tx_cost: tx_cost.toString(),
-      amount: String(BigInt(amounts)) || "0",
+      amount: String(BigInt(outputAmounts)) || "0",
       value_usd: 0,
       method_id: "",
       is_out: false,
@@ -266,19 +259,17 @@ export async function tokensTransfers(
   address: string
 ): Promise<WalletExplorerTransaction[]> {
   // Calculate transaction cost
-  const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
+  const txCost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
   const blockNumber = await getBlockNumber(data.blockHash);
   const inputHint = data.inputs?.[0]?.outputRef?.hint;
-  // Check if the wallet is sender
-  const isOut = data.inputs?.some((input) => input.address === address);
 
   // Initialize an array to store formatted transactions
   const transactions: WalletExplorerTransaction[] = [];
 
   // Check if both inputs and outputs exist
   if (data.inputs && data.outputs) {
-    // Set to store unique contract IDs
     const contractIds = new Set<string>();
+
     // Collect unique contract IDs from input tokens
     for (const input of data.inputs) {
       const inputContractIds = input.tokens?.map((token) => token.id);
@@ -289,13 +280,13 @@ export async function tokensTransfers(
 
     // Iterate over unique contract IDs to generate transactions
     for (const contractId of contractIds) {
-      // Find the input and output related to the current contract ID
       const input = data.inputs.find((input) =>
         input.tokens?.some((token) => token.id === contractId)
       );
+      //Format the Contract Address
+      const contract = formatAddress(contractId);
 
-      let output;
-      output = data.outputs.find(
+      let output = data.outputs.find(
         (output) =>
           output.hint !== input?.outputRef?.hint &&
           output.tokens?.some((token) => token.id === contractId)
@@ -308,31 +299,23 @@ export async function tokensTransfers(
       }
 
       if (input && output) {
-        // Get the amount received from the output
         const amountReceived =
           output.tokens?.find((token) => token.id === contractId)?.amount ||
           "0";
 
-        // Get contract address from contract ID
-        let contractsAddress: string | undefined;
-        if (contractId) {
-          const contracts = addressFromContractId(contractId); // Pass the string as an argument
-          contractsAddress = contracts.toString(); // Remove the argument from the toString method call
-        }
-        // Create formatted transaction object
         const formattedTransaction: WalletExplorerTransaction = {
           hash: data.hash,
-          block_number: blockNumber, // Populate as needed
-          wallet: address, // Populate as needed
-          contract: contractsAddress || "",
+          block_number: blockNumber,
+          wallet: address,
+          contract: contract || "",
           timestamp: data.timestamp,
           from: input.address || "",
           to: output.address || "",
-          tx_cost: tx_cost.toString(),
+          tx_cost: txCost.toString(),
           amount: String(BigInt(amountReceived)),
           value_usd: 0,
           method_id: "",
-          is_out: input.address === address ? true : false,
+          is_out: input.address === address,
           is_transfer: false,
           fee: 0,
           is_added: false,
@@ -344,29 +327,30 @@ export async function tokensTransfers(
     }
   }
 
-  //ALPH NATIVE TRANSFER
+  //ALPH Native Transfer
   let inputAmount = 0;
   let outputAmount = 0;
-
   let to: string = "";
+
+  //Find recipient address
   for (const input of data.inputs || []) {
     if (input?.outputRef?.hint !== inputHint && input.address !== address) {
       to = input?.address || "";
-      break; // Break loop once recipient address is found
+      break;
     }
   }
   // If recipient address is not found in inputs, search in outputs
   if (to === "") {
     for (const output of data.outputs || []) {
-      if (output.hint !== inputHint && output.address !== address) {
+      if (output.address !== address) {
         to = output.address;
-        break; // Break loop once recipient address is found
+        break;
       }
     }
   }
 
+  // Determine conditional hint
   let conditionalHint: number | undefined = undefined;
-
   for (const input of data.inputs || []) {
     if (input.address === address && input.outputRef?.hint) {
       conditionalHint = input.outputRef.hint;
@@ -378,6 +362,7 @@ export async function tokensTransfers(
     conditionalHint = 0;
   }
 
+  //Calculate input and output amounts
   for (const input of data.inputs || []) {
     if (input.unlockScript && input.address == address) {
       inputAmount += Number(input.attoAlphAmount);
@@ -392,45 +377,31 @@ export async function tokensTransfers(
       outputAmount += Number(output.attoAlphAmount);
     }
   }
-  if (inputAmount > outputAmount) {
+
+  // Create ALPH native transfer transaction
+  if (inputAmount !== outputAmount) {
+    const amount = String(BigInt(Math.abs(inputAmount - outputAmount)));
+    const isOut = inputAmount > outputAmount;
+
     const transaction: WalletExplorerTransaction = {
       hash: data.hash,
       block_number: blockNumber,
       wallet: address,
       contract: "",
       timestamp: data.timestamp,
-      from: address,
-      to: to,
-      tx_cost: tx_cost.toString(),
-      amount: String(BigInt(inputAmount - outputAmount)),
+      from: isOut ? address : to,
+      to: isOut ? to : address,
+      tx_cost: txCost.toString(),
+      amount: amount,
       value_usd: 0,
       method_id: "",
-      is_out: true,
+      is_out: isOut,
       is_transfer: false,
       fee: 0,
       is_added: false,
       is_removed: false,
     };
-    transactions.push(transaction);
-  } else if (inputAmount < outputAmount) {
-    const transaction: WalletExplorerTransaction = {
-      hash: data.hash,
-      block_number: blockNumber,
-      wallet: address,
-      contract: "",
-      timestamp: data.timestamp,
-      from: to,
-      to: address,
-      tx_cost: tx_cost.toString(),
-      amount: String(BigInt(outputAmount - inputAmount)),
-      value_usd: 0,
-      method_id: "",
-      is_out: false,
-      is_transfer: false,
-      fee: 0,
-      is_added: false,
-      is_removed: false,
-    };
+
     transactions.push(transaction);
   }
 
@@ -442,7 +413,6 @@ export async function dappTransactionsFormat(
   address: string
 ): Promise<WalletExplorerTransaction[]> {
   const tx_cost = (Number(data.gasPrice) * data.gasAmount) / 10 ** 18;
-  const isOut = data.inputs?.some((input) => input.address === address);
   const transactions: WalletExplorerTransaction[] = [];
   const inputHint = data.inputs?.[0]?.outputRef?.hint;
   const blockNumber = await getBlockNumber(data.blockHash);
@@ -547,6 +517,8 @@ export async function dappTransactionsFormat(
     // because the contract should return the amount to user so the contract address is the sender
     let contractAddress: string[] = [];
 
+    const contract = formatAddress(tokenId); //Format the Contract Address
+
     if (data.outputs) {
       contractAddress = data.outputs
         .filter((output) => output.type === "ContractOutput") // Filter outputs with type "ContractOutput"
@@ -558,16 +530,11 @@ export async function dappTransactionsFormat(
     // so we subtract the input amount from the output amount and return it in amount field
 
     if (tokenInputAmount > tokenOutputAmount) {
-      let contractsAddress;
-      if (tokenId) {
-        const contracts = addressFromContractId(tokenId);
-        contractsAddress = contracts.toString();
-      }
       const transaction = {
         hash: data.hash,
         block_number: blockNumber,
         wallet: address,
-        contract: contractsAddress || "",
+        contract: contract || "",
         timestamp: data.timestamp,
         from: address,
         to: to,
@@ -586,16 +553,11 @@ export async function dappTransactionsFormat(
       // If the output amount is greater than the input amount,
       // so we subtract the output amount from the input amount and return it in amount field
       // Sender is the contract address in this case because we interact with contract
-      let contractsAddress;
-      if (tokenId) {
-        const contracts = addressFromContractId(tokenId);
-        contractsAddress = contracts.toString();
-      }
       const transaction = {
         hash: data.hash,
         block_number: blockNumber,
         wallet: address,
-        contract: contractsAddress || "",
+        contract: contract || "",
         timestamp: data.timestamp,
         from: contractAddress[contractAddress.length - 1] || "",
         to: address,
@@ -694,28 +656,28 @@ export async function formatTransaction(
   address: string
 ): Promise<WalletExplorerTransaction[]> {
   // Check if the transaction has contract outputs
-  if (data.outputs) {
-    const hasContractOutput = data.outputs.some(
-      (output) => output.type === "ContractOutput"
-    );
-    // If contract outputs are found, format the transaction as a DApp transaction
-    if (hasContractOutput) {
-      return await dappTransactionsFormat(data, address);
-    }
+  if (
+    data.outputs &&
+    data.outputs.some((output) => output.type === "ContractOutput")
+  ) {
+    return await dappTransactionsFormat(data, address);
   }
+
   // Check if the transaction involves token transfers
-  if (data.inputs) {
-    const hasTokenTransfer = data.inputs.some(
-      (input) => input.tokens && input.tokens.length > 0
-    );
-    // If token transfers are found, format the transaction accordingly
-    if (hasTokenTransfer) {
-      return await tokensTransfers(data, address);
-    }
+  if (
+    data.inputs &&
+    data.inputs.some((input) => input.tokens && input.tokens.length > 0)
+  ) {
+    return await tokensTransfers(data, address);
   }
 
   // If no special cases are detected, format the transaction as a native transfer
   return [await nativeTransfers(data, address)];
+}
+
+function formatAddress(tokenId: string) {
+  const contracts = addressFromContractId(tokenId);
+  return contracts.toString();
 }
 
 module.exports = {
