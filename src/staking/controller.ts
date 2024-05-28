@@ -5,6 +5,7 @@ import {
   contractIdFromAddress,
   subContractId,
 } from "@alephium/web3";
+
 import base58 from "bs58";
 import { WalletExplorerTransaction, transactions } from "./transaction";
 
@@ -246,6 +247,51 @@ const UserBalancesIN = (
   );
 };
 
+//Accured Rewards
+
+// staking/controller.js
+export type rewards = {
+  staked: bigint;
+  currentRewardPerToken: bigint;
+  rewardPerTokenPaid: bigint;
+  pastRewards: bigint;
+};
+
+export function calculateAccruedRewards({
+  staked,
+  rewardPerTokenPaid,
+  pastRewards,
+}: rewards): { staked: bigint; accruedRewards: bigint } {
+  let accruedRewards: bigint = BigInt(0);
+
+  const currentRewardPerTokens = calculateTokenPerRewards();
+
+  const earnedRewards =
+    BigInt(staked) *
+      (BigInt(currentRewardPerTokens) - BigInt(rewardPerTokenPaid)) +
+    BigInt(pastRewards);
+
+  accruedRewards = earnedRewards;
+
+  return { staked: staked, accruedRewards: accruedRewards };
+}
+
+export function calculateTokenPerRewards(): bigint {
+  const rewardRate = BigInt("9670519671448");
+  const totalAmountStaked = BigInt("702284102910338560549604");
+  const rewardPerTokenStored = BigInt("876374224876800042");
+  const lastUpdateTime = BigInt("1716388715061");
+
+  const currentUpdateTime = Date.now().toString();
+
+  const rewardPerToken =
+    rewardPerTokenStored +
+    (rewardRate * (lastUpdateTime - BigInt(currentUpdateTime))) /
+      totalAmountStaked;
+  return rewardPerToken;
+}
+
 module.exports = {
   getAllBalances,
+  calculateAccruedRewards,
 };

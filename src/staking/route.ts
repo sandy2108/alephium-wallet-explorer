@@ -6,14 +6,21 @@ const router: Router = Router();
 // Adjusted to use query parameters for page and limit
 router.get("/:address", async (req: Request, res: Response) => {
   try {
-    // Extracting `address` from the route parameters
-    const { address } = req.params;
+    const staked = BigInt("37856939905587111085");
+    const pastRewards = BigInt("0");
+    const rewardPerTokenPaid = BigInt("857569512242155371");
 
-    // Assuming `getTransactionsForAddress` is adjusted to take these parameters directly
-    const transactions = await controller.getAllBalances(address);
+    const rew = await controller.getAllBalances(req.params.address);
 
-    // Assuming `getTransactionsForAddress` returns the transactions
-    res.json(transactions);
+    // Calculate accrued rewards
+    const rewards = await controller.calculateAccruedRewards({
+      staked,
+      rewardPerTokenPaid,
+      pastRewards,
+    });
+
+    // Respond with the calculated rewards
+    res.json(rew);
   } catch (error) {
     console.error("Error processing request:", error);
     res.status(500).json({ error: "Internal Server Error" });
