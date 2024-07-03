@@ -35,20 +35,13 @@ To run Shiva locally, follow these steps:
 Once the server is running, you can access the API endpoints to fetch blockchain data.
 
 ## API Endpoints
-1 **Blocks**
-  - GET /api/v1/blocks: Get all blocks
-  - GET /api/v1/blocks/:block: Get a block by ID
-  - GET /api/v1/blocks/:from/:to: Get blocks within a range
+1 **Transaction**
+  - GET /api/v1/transactions/:address Get User Transaction in Codebase Format
     
-2 **Transactions**
-  - GET /api/v1/transactions: Get all transactions
-  - GET /api/v1/transactions/:txn: Get a transaction by hash
+2 **Defi**
+  - GET /api/v1/defi/:address Get the Defi Position with accured Rewards (Need to add the transactions mock)
 
-3 **Logs**
-  - GET /api/v1/logs: Get all logs
-  - GET /api/v1/logs/:address: Get logs by address
-  - GET /api/v1/logs/:address/:fromBlock/:toBlock: Get logs within a block range
-
-  
+3 **tokens**
+  - GET /api/v1/tokens/:address Get the user token balance
 
 # alephium-wallet-explorer
