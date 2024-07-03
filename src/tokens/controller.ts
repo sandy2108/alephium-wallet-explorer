@@ -62,7 +62,7 @@ const AYIN_DEX_STAKING_POOL_CONTRACT = [
 ];
 
 async function getNativeTokenBalance(address: string): Promise<NativeToken[]> {
-  const endpoint = `https://backend.mainnet.alephium.org/addresses/${address}/balance`;
+  const endpoint = `https://backend-v113.mainnet.alephium.org/addresses/${address}/balance`;
 
   const response = await fetch(endpoint);
   const data = await response.json();
@@ -70,7 +70,7 @@ async function getNativeTokenBalance(address: string): Promise<NativeToken[]> {
 }
 
 async function getTokensBalance(address: string): Promise<Token[]> {
-  const endpoint = `https://backend.mainnet.alephium.org/addresses/${address}/tokens-balance`;
+  const endpoint = `https://backend-v113.mainnet.alephium.org/addresses/${address}/tokens-balance`;
   const response = await fetch(endpoint);
   const data = await response.json();
   return data;
@@ -102,7 +102,7 @@ async function getTokenIdTransaction(
   address: string,
   tokenId: string
 ): Promise<string[]> {
-  const endpoint = `https://backend.mainnet.alephium.org/addresses/${address}/tokens/${tokenId}/transactions`;
+  const endpoint = `https://backend-v113.mainnet.alephium.org/addresses/${address}/tokens/${tokenId}/transactions`;
   const response = await fetch(endpoint);
   const data = await response.json();
   console.log(data);
@@ -142,7 +142,7 @@ async function getSubContractFromTransactions(
 async function getParentContractFromSubContract(
   address: string
 ): Promise<string | null> {
-  const endpoint = `https://backend.mainnet.alephium.org/contracts/${address}/parent`;
+  const endpoint = `https://backend-v113.mainnet.alephium.org/contracts/${address}/parent`;
   const response = await fetch(endpoint);
   const data = await response.json();
 

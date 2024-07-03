@@ -95,7 +95,7 @@ async function getBlockNumber(blockHash: string) {
   while (attempts < maxRetries) {
     try {
       // Fetch the block number from the block hash
-      const blockEndpoint = `https://backend.mainnet.alephium.org/blocks/${blockHash}`;
+      const blockEndpoint = `https://backend-v113.mainnet.alephium.org/blocks/${blockHash}`;
       const response = await fetch(blockEndpoint);
       if (!response.ok) {
         throw new Error(
@@ -133,7 +133,7 @@ export async function getTransactionsForAddress(
   limit: number
 ): Promise<WalletExplorerTransaction[]> {
   try {
-    const walletTxnPoint: string = `https://backend.mainnet.alephium.org/addresses/${address}/transactions?page=${page}&limit=${limit}`;
+    const walletTxnPoint: string = `https://backend-v113.mainnet.alephium.org/addresses/${address}/transactions?page=${page}&limit=${limit}`;
     const response = await fetch(walletTxnPoint);
     if (!response.ok) {
       switch (response.status) {
